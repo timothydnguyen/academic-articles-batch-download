@@ -49,7 +49,10 @@ time.data <- timeslice(soil.health,breaks=c(1990,2000,2010))
 data <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI)
 names(data) <- c('Name','DOI')
 library(metagear)
+# nrow(data[which(data$DOI != '<NA>'),]) Of 1463 observations, 1038 have valid DOIs
 PDFs_collect(aDataFrame=data,DOIcolumn="DOI",FileNamecolumn="Name",directory="~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/")
+
+
 
 
 ## ************ ##
