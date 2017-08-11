@@ -2,15 +2,28 @@
 # install_github("massimoaria/bibliometrix")
 library(bibliometrix) # For reading and analyzing ISI stuff
 
+library(metagear)
+
+
+# Constants ----
+data_dir <- '/Users/timothy/Documents/soilc-text_mapping/data'
+isi_dir <- file.path(data_dir, 'isi_searches')
+pdf_output_dir <- file.path(data_dir, 'pdf_output')
+
 
 ## *********** ##
 ## SOIL HEALTH ##
 ## *********** ##
 
 ## Read WoS saved searches
-soil.health <- rbind(isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_1to500.bib")),
-              isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_501to1000.bib")),
-              isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_1001to1463.bib")))
+# readFiles() actually takes multiple files as input so i rewrote this part accordingly
+soil.health <- convert2df(readFiles(file.path(isi_dir, 'soil.health_healthy.soil_1to500.bib'),
+                                    file.path(isi_dir, 'soil.health_healthy.soil_501to1000.bib'),
+                                    file.path(isi_dir, 'soil.health_healthy.soil_1001to1463.bib')))
+# soil.health <- rbind(isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_1to500.bib")),
+#               isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_501to1000.bib")),
+#               isibib2df(readFiles("~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/isi_searches/soil.health_healthy.soil_1001to1463.bib")))
+
 
 ## Clean data
 soil.health <- duplicatedMatching(soil.health,Field="TI")
@@ -48,12 +61,57 @@ time.data <- timeslice(soil.health,breaks=c(1990,2000,2010))
 ## Download papers
 data <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI)
 names(data) <- c('Name','DOI')
-library(metagear)
-# nrow(data[which(data$DOI != '<NA>'),]) Of 1463 observations, 1038 have valid DOIs
-PDFs_collect(aDataFrame=data,DOIcolumn="DOI",FileNamecolumn="Name",directory="~/Google Drive/SNAPP-Soil-Carbon/Literature/soil_health/")
+data_valid <- data[!is.na(data$DOI),] # Of 1460 observations, 1037 have valid DOIs
+PDFs_collect(aDataFrame=data_valid,DOIcolumn="DOI",FileNamecolumn="Name",directory=pdf_output_dir)
 
 
-
+PDF_download <- function (DOI, directory = getwd(), theFileName = "temp", validatePDF = TRUE, quiet = FALSE, WindowsProxy = FALSE) {
+  if (!quiet) {
+    message(paste0("Collecting PDF from DOI: ", DOI))
+    message(paste0("\t\t\tExtraction 1 of 2: HTML script...."), 
+            appendLF = FALSE)
+  }
+  if (is.URLconnectable(paste0("http://dx.doi.org/", DOI))) {
+    urlMessage <- " successful"
+    theHTMLvector <- getHTMLfromURL(paste0("http://dx.doi.org/", 
+                                           DOI))
+    if (!quiet) {
+      message(paste0(urlMessage))
+      message(paste0("\t\t\tExtraction 2 of 2: PDF download..."), 
+              appendLF = FALSE)
+    }
+    wasPDFdownloaded <- extractPDFsFromHTML(theHTMLvector, 
+                                            directory, theFileName, validatePDF, WindowsProxy)
+    if (wasPDFdownloaded == TRUE) {
+      downloadMessage <- " successful"
+      downloadOutcome <- "downloaded"
+    }
+    else {
+      downloadMessage <- wasPDFdownloaded
+      downloadOutcome <- "download error"
+    }
+    if (!quiet) 
+      message(paste0(downloadMessage, ifelse(downloadOutcome == 
+                                               " downloaded", paste0(" (filename: ", theFileName, 
+                                                                     ".pdf)"), "")))
+  }
+  else {
+    urlMessage <- " cannot open: HTTP status was '404 Not Found'"
+    downloadMessage <- " skipped"
+    if (!quiet) {
+      message(paste0(urlMessage))
+      message(paste0("\t\t\tExtraction 2 of 2: PDF download...", 
+                     downloadMessage))
+    }
+    if (is.na(DOI)) {
+      downloadOutcome <- "no DOI"
+    }
+    else {
+      downloadOutcome <- "URL error"
+    }
+  }
+  return(downloadOutcome)
+}
 
 ## ************ ##
 ## SOIL QUALITY ##
