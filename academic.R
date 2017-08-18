@@ -97,7 +97,8 @@ for (links in data_valid_with_pdf$links) {
   pdf_links <- c(pdf_links, pdf_link)
 }
 
-data_valid_with_pdf$pdf_link <- pdf_links # THIS OBJECT CONTAINS A LIST OF DIRECT LINKS TO PDFS (with high probability)
+data_valid_with_pdf$pdf_link <- unlist(pdf_links) # THIS OBJECT CONTAINS A LIST OF DIRECT LINKS TO PDFS (with high probability)
+write.csv(data_valid_with_pdf[,c(1, 2, 4)], file = file.path(data_dir, 'pdf_info.csv'), row.names = F)
 
 pdf_text <- list()
 failure <- c()
