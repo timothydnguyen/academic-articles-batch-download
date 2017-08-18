@@ -2,6 +2,9 @@
 # install_github("massimoaria/bibliometrix")
 library(bibliometrix) # For reading and analyzing ISI stuff
 
+# install.packages('crminer')
+library(crminer)
+library(stringr)
 library(metagear)
 
 
@@ -59,59 +62,65 @@ CS <- conceptualStructure(termExtraction(soil.health,Field="AB"))
 time.data <- timeslice(soil.health,breaks=c(1990,2000,2010))
 
 ## Download papers
-data <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI)
+data <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI, stringsAsFactors = FALSE)
 names(data) <- c('Name','DOI')
 data_valid <- data[!is.na(data$DOI),] # Of 1460 observations, 1037 have valid DOIs
+
+links <- sapply(data_valid$DOI, crm_links)
+# for (i in 1:length(links)) {
+#   has_pdf[i] <- ('pdf' %in% names(links[[i]]))
+# }
+
+data_valid$links <- links
+
+# creating a logical vector to be used to index those documents which have link types 'pdf' or 'unspecified' 
+#   (for some reason, pdf links sometimes labled as unspecified)
+has_pdf <- c()
+for (i in 1:length(links)) {
+  link_types <- names(links[[i]])
+  if (as.logical(sum(c('pdf', 'unspecified') %in% link_types))) {
+    has_pdf <- c(has_pdf, i)
+  }
+}
+
+length(has_pdf) # 560 out of 1037 have pdf links
+data_valid_with_pdf <- data_valid[has_pdf,]
+links_without_pdf <- links[!has_pdf] # need to examine to understand if these links are of any value; if they aren't then why not?
+
+pdf_links <- c()
+for (links in data_valid_with_pdf$links) {
+  if ('pdf' %in% names(links)) {
+    pdf_link <- links$pdf
+  } else {
+    pdf_link <- links$unspecified
+  }
+  pdf_links <- c(pdf_links, pdf_link)
+}
+
+data_valid_with_pdf$pdf_link <- pdf_links # THIS OBJECT CONTAINS A LIST OF DIRECT LINKS TO PDFS (with high probability)
+
+pdf_text <- list()
+failure <- c()
+for (i in 1:length(data_valid_with_pdf)) {
+  filename <- str_replace_all(data_valid_with_pdf$Name[i], ' ', '_') %>% 
+    str_replace_all('\\.', '') %>%
+    paste('.pdf', sep = '')
+  pdf_outpath <- file.path(pdf_output_dir, filename)
+  dl_fail <- download.file(url = pdf_links[[i]], destfile = pdf_outpath)
+  failure <- c(failure, dl_fail)
+}
+
 PDFs_collect(aDataFrame=data_valid,DOIcolumn="DOI",FileNamecolumn="Name",directory=pdf_output_dir)
 
 
-PDF_download <- function (DOI, directory = getwd(), theFileName = "temp", validatePDF = TRUE, quiet = FALSE, WindowsProxy = FALSE) {
-  if (!quiet) {
-    message(paste0("Collecting PDF from DOI: ", DOI))
-    message(paste0("\t\t\tExtraction 1 of 2: HTML script...."), 
-            appendLF = FALSE)
-  }
-  if (is.URLconnectable(paste0("http://dx.doi.org/", DOI))) {
-    urlMessage <- " successful"
-    theHTMLvector <- getHTMLfromURL(paste0("http://dx.doi.org/", 
-                                           DOI))
-    if (!quiet) {
-      message(paste0(urlMessage))
-      message(paste0("\t\t\tExtraction 2 of 2: PDF download..."), 
-              appendLF = FALSE)
-    }
-    wasPDFdownloaded <- extractPDFsFromHTML(theHTMLvector, 
-                                            directory, theFileName, validatePDF, WindowsProxy)
-    if (wasPDFdownloaded == TRUE) {
-      downloadMessage <- " successful"
-      downloadOutcome <- "downloaded"
-    }
-    else {
-      downloadMessage <- wasPDFdownloaded
-      downloadOutcome <- "download error"
-    }
-    if (!quiet) 
-      message(paste0(downloadMessage, ifelse(downloadOutcome == 
-                                               " downloaded", paste0(" (filename: ", theFileName, 
-                                                                     ".pdf)"), "")))
-  }
-  else {
-    urlMessage <- " cannot open: HTTP status was '404 Not Found'"
-    downloadMessage <- " skipped"
-    if (!quiet) {
-      message(paste0(urlMessage))
-      message(paste0("\t\t\tExtraction 2 of 2: PDF download...", 
-                     downloadMessage))
-    }
-    if (is.na(DOI)) {
-      downloadOutcome <- "no DOI"
-    }
-    else {
-      downloadOutcome <- "URL error"
-    }
-  }
-  return(downloadOutcome)
-}
+
+
+
+
+
+
+
+
 
 ## ************ ##
 ## SOIL QUALITY ##
