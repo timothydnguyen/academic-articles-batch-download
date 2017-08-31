@@ -1,10 +1,12 @@
 # library("devtools")
 # install_github("massimoaria/bibliometrix")
+library(tidyverse) # for general purpose data manip
 library(bibliometrix) # For reading and analyzing ISI stuff
-
 # install.packages('crminer')
-library(crminer)
-library(stringr)
+library(crminer) # for getting texts from DOI
+library(XML) # for parsing elsevier xml responses
+library(rvest) # for parsing html responses
+library(jsonlite) # for parsing json objects
 library(metagear)
 
 
@@ -61,31 +63,115 @@ CS <- conceptualStructure(termExtraction(soil.health,Field="AB"))
 ## Divide up into time analysis
 time.data <- timeslice(soil.health,breaks=c(1990,2000,2010))
 
-## Download papers
+# ===============================
+# organize links
+# ===============================
+
 data <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI, stringsAsFactors = FALSE)
 names(data) <- c('Name','DOI')
 data_valid <- data[!is.na(data$DOI),] # Of 1460 observations, 1037 have valid DOIs
 
-links <- sapply(data_valid$DOI, crm_links)
-# for (i in 1:length(links)) {
-#   has_pdf[i] <- ('pdf' %in% names(links[[i]]))
-# }
+data_valid$links <- sapply(data_valid$DOI, crm_links) # getting links for each DOI
+data_valid <- data_valid[lapply(data_valid$links, length) > 0,] # 929 of 1037 DOIs returned links via crm_links()
 
-data_valid$links <- links
 
 # creating a logical vector to be used to index those documents which have link types 'pdf' or 'unspecified' 
-#   (for some reason, pdf links sometimes labled as unspecified)
-has_pdf <- c()
-for (i in 1:length(links)) {
-  link_types <- names(links[[i]])
+#   elsevier links dont have pdf or unspecified links offered; they require a separate dl process, so we distinguish here
+for (i in 1:length(data_valid$links)) {
+  link_types <- names(data_valid$links[[i]])
   if (as.logical(sum(c('pdf', 'unspecified') %in% link_types))) {
-    has_pdf <- c(has_pdf, i)
+    data_valid$elsevier[i] <- FALSE
+  } else {
+    data_valid$elsevier[i] <- TRUE
   }
 }
 
+# creating single object (df) to feed into download process
+# selecting a single link for each DOI (up until now, there has been a list of links assoc. to each DOI)
+for (i in 1:dim(data_valid)[1]) {
+  if (data_valid$elsevier[i]) {
+    link <- as.character(data_valid$links[[i]]$xml)
+  } else if ('pdf' %in% names(data_valid$links[[i]])) {
+    link <- data_valid$links[[i]]$pdf
+  } else {
+    link <- data_valid$links[[i]]$unspecified
+  }
+  data_valid$link[i] <- unlist(link)
+}
+data_valid$link <- unlist(data_valid$link)
+
+# ===============================
+# download PDFs from links
+# ===============================
+## elsevier links require a special webscraping process, so I wrote a function for it
+### ARGUMENTS
+#### elsevier_xml_link is an elsevier link of type 'xml' as returned by crminer
+#### filepath is a character string representation of the desired output location
+elsevier_pdf_download <- function(elsevier_xml_link, filepath) {
+  scidir_html_link <- elsevier_xml_link %>%
+    read_xml() %>%
+    xml_find_all('//@href') %>%
+    xml_text()
+  # getting route to initial pdf download link on science direct's domain
+  json_obj <- scidir_html_link[2] %>% # we need to index to the second link in the `scidir_html_link` obj
+    read_html() %>% # get html response from science direct link retrieved from elsevier XML response
+    html_nodes('body') %>% # start from the body section
+    html_nodes('div') %>% # get the div contents within that body section
+    html_nodes('script') %>% # get the script contents within that div
+    html_text() %>% # extract text (JSON string)
+    fromJSON() # convert JSON string to R obj
+  # constructing url; second arg in paste function is route to initial pdf link obtained by navigating R obj representation of the JSON string
+  url_of_interest <- paste0('https://www.sciencedirect.com', json_obj$article$pdfDownload$linkToPdf) 
+  # getting temporary link
+  read_html(url_of_interest) %>% 
+    html_node('head') %>% within
+    html_nodes('meta[http-equiv="Refresh"]') %>% 
+    html_attr('content') %>% # 
+    substr(7, 100000000L) %>% # the first 6 chars are not part of the url we want, so we slice them off
+    download.file(filepath) # download pdf to provided filepath
+}
+
+## Here, I call the function repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
+##  'organize links' section of the script
+system.time(for (i in 1:dim(data_valid)[1]) {
+  if (data_valid$elsevier[i]) {
+    url <- data_valid$link[i]
+    outpath <- file.path(pdf_output_dir, data_valid$Name[i])
+    data_valid$downloaded <- tryCatch(elsevier_pdf_download(url, outpath),
+                                      error=function(cond) {
+                                        message(cond)
+                                        return(1)
+                                      }, 
+                                      finally = message(paste("Processed URL:", url)))
+  }
+})
+
+
+links <- data.frame()
+
 length(has_pdf) # 560 out of 1037 have pdf links
 data_valid_with_pdf <- data_valid[has_pdf,]
-links_without_pdf <- links[!has_pdf] # need to examine to understand if these links are of any value; if they aren't then why not?
+elsevier <- links[-has_pdf] # need to examine to understand if these links are of any value; if they aren't then why not?
+
+# creating df of non-pdf links (links to be discarded)
+no_pdf <- data.frame()
+for (i in 1:length(links_without_pdf)) {
+  doi <- names(links_without_pdf[i])
+  links <- if (length(links_without_pdf[[i]]) == 0) 'NA' else unlist(links_without_pdf[[i]])
+  print(i)
+  no_pdf <- rbind(no_pdf, cbind(doi, links))
+}
+write.csv(no_pdf, file = file.path(data_dir, 'no_pdf.csv'), row.names = F)
+
+
+has_xml <- c()
+elsevier <- data_valid$links[data_valid$elsevier]
+for (i in 1:length(elsevier)) {
+  has_xml <- c(has_xml, ('xml' %in% names(elsevier[[i]])))
+}
+
+
+
 
 pdf_links <- c()
 for (links in data_valid_with_pdf$links) {

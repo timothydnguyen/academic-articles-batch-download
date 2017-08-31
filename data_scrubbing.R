@@ -3,24 +3,29 @@
 # -----------------------
 
 
+# Packages ----
 # install packages
-install.packages('tm')        # installs 'tm-Text Mining' package: https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf
-install.packages('quanteda')  # installs 'quanteda' package: https://github.com/kbenoit/quanteda
+# install.packages('tm')        # installs 'tm-Text Mining' package: https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf
+# install.packages('quanteda')  # installs 'quanteda' package: https://github.com/kbenoit/quanteda
 
 # load packages
 library('tm')       # loads Text Mining package
 library('quanteda') # loads Quanteda package
 
+# Constants ----
+pdf_dir <- '/Users/timothy/Documents/soilc-text_mapping/data/pdfs_to_scrub'
+
+
 ## use TM package to read in pdfs
 #  create list of pdf files we want to mine
-setwd("~/Google Drive/SNAPP-Soil-Carbon/Products/cross-cutting_projects/soil_health_ecosystem_health/soil_health_references/test")
-pdf <- list.files(pattern= 'pdf$') 
+# setwd("~/Google Drive/SNAPP-Soil-Carbon/Products/cross-cutting_projects/soil_health_ecosystem_health/soil_health_references/test")
+pdfs <- file.path(pdf_dir, list.files(path = pdf_dir, pattern = 'pdf$'))
 
 # Define function to read PDF files into R as text.
 pdfRead <- readPDF(control = list(text= '-layout'))
 
 # Apply function to read in pdf files and coerce them to a TM's VCORPUS
-papers <- Corpus(URISource(pdf), readerControl = list(reader=pdfRead))
+papers <- Corpus(URISource(pdfs), readerControl = list(reader=pdfRead))
 
 
 
