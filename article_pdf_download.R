@@ -2,10 +2,9 @@
 # PACKAGES
 # ===============================
 # library("devtools")
-# install_github("massimoaria/bibliometrix")
+# install_github("massimoaria/bibliometrix") # Needs to installed from GitHub not CRAN
 library(tidyverse) # for general purpose data manip
 library(bibliometrix) # For reading and analyzing ISI stuff
-# install.packages('crminer')
 library(crminer) # for getting texts from DOI
 library(XML) # for parsing elsevier xml responses
 library(rvest) # for parsing html responses
@@ -14,22 +13,30 @@ library(jsonlite) # for parsing json objects
 # ===============================
 # CONSTANTS
 # ===============================
-data_dir <- '/Users/timothy/Documents/soilc-text_mapping/data'
+data_dir <- './data' # Relative path to repository. To be changed as needed
 isi_dir <- file.path(data_dir, 'isi_searches')
 pdf_output_dir <- file.path(data_dir, 'pdf_output')
+# Check if outpath exists
+dir.create(pdf_output_dir, showWarnings = FALSE)
 
 
 # ===============================
 # FUNCTIONS
 # ===============================
+
 # elsevier links require a special webscraping process, so I wrote a function for it 
+
+#' This function uses webscraping techniques to download a PDF file from elseviers server
+#'
+#' @param elsevier_xml_link A character; elsevier link of type xml as returned by crminer's crmlinks() function
+#' @param filepath A character; path to desired output location for downloaded PDF
+#'
+#' @return Nothing. Download PDFs to HD
+#' @export
+#'
+#' @examples
+#' elsevier_pdf_download('https://api.elsevier.com/content/article/PII:0167198795004585?httpAccept=text/xml','/Users/timothy/Documents/soilc-text_mapping/data')
 elsevier_pdf_download <- function(elsevier_xml_link, filepath) {
-  # This function uses webscraping techniques to download a PDF file from elseviers server
-  # 
-  # keyword arguments:
-  #   elsevier_xml_link-- elsevier link of type `xml` as returned by crminer's crmlinks() function
-  #   filepath-- path to desired output location for downloaded PDF
-  
   # getting science direct link from elsevier xml contents
   scidir_html_link <- elsevier_xml_link %>%
     read_xml() %>%
@@ -73,6 +80,8 @@ soil.health <- duplicatedMatching(soil.health,Field="TI")
 my_df <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI, stringsAsFactors = FALSE)
 names(my_df) <- c('Name','DOI')
 my_df <- my_df[!is.na(my_df$DOI),] # Of 1460 observations, 1037 have valid DOIs
+my_df <- my_df[1:50,]
+
 # collecting links
 my_df$links <- sapply(my_df$DOI, crm_links) # getting links for each DOI
 my_df <- my_df[lapply(my_df$links, length) > 0,] # 929 of 1037 DOIs returned links via crm_links()
@@ -91,15 +100,14 @@ for (i in 1:length(my_df$links)) {
 # selecting a single link for each DOI (up until now, there has been a list of links assoc. to each DOI)
 for (i in 1:dim(my_df)[1]) {
   if (my_df$elsevier[i]) { # if it's from elsevier, we want to get the xml link
-    link <- as.character(my_df$links[[i]]$xml)
+    link <- my_df$links[[i]]$xml$xml
   } else if ('pdf' %in% names(my_df$links[[i]])) { # otherwise, we prefer the 'pdf' link type
-    link <- my_df$links[[i]]$pdf
+    link <- my_df$links[[i]]$pdf$pdf
   } else { # our last preference is the 'unspecified' link type
-    link <- my_df$links[[i]]$unspecified
+    link <- my_df$links[[i]]$unspecified$unspecified
   }
-  my_df$link[i] <- unlist(link)
+  my_df$download_link[i] <- as.character(link)
 }
-my_df$link <- unlist(my_df$link)
 
 
 ## STEP 3: DOWNLOAD PDFS FROM LINKS
@@ -109,8 +117,9 @@ my_df$link <- unlist(my_df$link)
 # 'organize links' section of the script
 system.time(for (i in 1:dim(my_df)[1]) {
   if (my_df$elsevier[i]) {
-    url <- my_df$link[i]
+    url <- my_df$download_link[i]
     outpath <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
+
     my_df$downloaded <- tryCatch(elsevier_pdf_download(url, outpath),
                                       error=function(cond) {
                                         message(cond)
