@@ -29,7 +29,9 @@ elsevier_pdf_download <- function(elsevier_xml_link, filepath) {
   # keyword arguments:
   #   elsevier_xml_link-- elsevier link of type `xml` as returned by crminer's crmlinks() function
   #   filepath-- path to desired output location for downloaded PDF
-  
+  #
+  # return:
+  #   none
   # getting science direct link from elsevier xml contents
   scidir_html_link <- elsevier_xml_link %>%
     read_xml() %>%
@@ -55,21 +57,58 @@ elsevier_pdf_download <- function(elsevier_xml_link, filepath) {
 }
 
 
+is_binary <- function(filepath,max=1000){
+  # This function checks if a file is binary or ASCII (all of our pdfs are binary, and all of our non-pdf files are likely ASCII)
+  # source: https://stackoverflow.com/questions/16350164/native-method-in-r-to-test-if-file-is-ascii
+  #
+  # keyword arguemnts:
+  #   filepath-- path to file to be checked
+  #   max-- max number of characters in file to check (default 1000)
+  #
+  # return:
+  #   TRUE if binary and FALSE if ASCII
+  f=file(filepath,"rb",raw=TRUE)
+  b=readBin(f,"int",max,size=1,signed=FALSE)
+  close(f)
+  return(max(b)>128)
+}
+
+
 # ===============================
 # MAIN
 # ===============================
 
 ## STEP 1: READ DOIs/METADATA FROM BIB FILES
 
-soil.health <- convert2df(readFiles(file.path(isi_dir, 'soil.health_healthy.soil_1to500.bib'),
+soil.health <- convert2df(readFiles(file.path(isi_dir, 'healthy.rangelands.bib'),
+                                    file.path(isi_dir, 'rangeland_SAME_soil.health.bib'),
+                                    file.path(isi_dir, 'rangeland.health.bib'),
+                                    file.path(isi_dir, 'soil.health_healthy.soil_1to500.bib'),
                                     file.path(isi_dir, 'soil.health_healthy.soil_501to1000.bib'),
-                                    file.path(isi_dir, 'soil.health_healthy.soil_1001to1463.bib')))
+                                    file.path(isi_dir, 'soil.health_healthy.soil_1001to1463.bib'),
+                                    file.path(isi_dir, 'soil.quality_1to500.bib'),
+                                    file.path(isi_dir, 'soil.quality_501to1000.bib'),
+                                    file.path(isi_dir, 'soil.quality_1001to1500.bib'),
+                                    file.path(isi_dir, 'soil.quality_1501to2000.bib'),
+                                    file.path(isi_dir, 'soil.quality_2001to2500.bib'),
+                                    file.path(isi_dir, 'soil.quality_2501to3000.bib'),
+                                    file.path(isi_dir, 'soil.quality_3001to3500.bib'),
+                                    file.path(isi_dir, 'soil.quality_3501to4000.bib'),
+                                    file.path(isi_dir, 'soil.quality_4001to4500.bib'),
+                                    file.path(isi_dir, 'soil.quality_4501to5000.bib'),
+                                    file.path(isi_dir, 'soil.quality_5001to5500.bib'),
+                                    file.path(isi_dir, 'soil.quality_5501to6000.bib'),
+                                    file.path(isi_dir, 'soil.quality_6001to6500.bib'),
+                                    file.path(isi_dir, 'soil.quality_6501to7000.bib'),
+                                    file.path(isi_dir, 'soil.quality_7001to7471.bib')
+))
+soil.health <- convert2df(sapply(file.path(data_dir, dir(isi_dir)), readFiles))
 # removing duplicate records
 soil.health <- duplicatedMatching(soil.health,Field="TI") 
 
 
 ## STEP 2: ORGANIZE LINKS
-
+message('===============================\nORGANIZING LINKS\n===============================')
 my_df <- data.frame(paste(gsub(";.*$", "", soil.health$AU),soil.health$PY,soil.health$JI),soil.health$DI, stringsAsFactors = FALSE)
 names(my_df) <- c('Name','DOI')
 my_df <- my_df[!is.na(my_df$DOI),] # Of 1460 observations, 1037 have valid DOIs
@@ -77,14 +116,13 @@ my_df <- my_df[!is.na(my_df$DOI),] # Of 1460 observations, 1037 have valid DOIs
 my_df$links <- sapply(my_df$DOI, crm_links) # getting links for each DOI
 my_df <- my_df[lapply(my_df$links, length) > 0,] # 929 of 1037 DOIs returned links via crm_links()
 
-# creating a logical vector to be used to index those documents which have link types 'pdf' or 'unspecified' 
-#   elsevier links dont have pdf or unspecified links offered; they require a separate dl process, so we distinguish here
+
+# elsevier links require a separate dl process, so we distinguish them here
 for (i in 1:length(my_df$links)) {
-  link_types <- names(my_df$links[[i]])
-  if (as.logical(sum(c('pdf', 'unspecified') %in% link_types))) {
-    my_df$elsevier[i] <- FALSE
-  } else {
+  if (grepl('elsevier',my_df$link[[i]])) { # checking for string 'elsevier' in link
     my_df$elsevier[i] <- TRUE
+  } else {
+    my_df$elsevier[i] <- FALSE
   }
 }
 
@@ -103,31 +141,55 @@ my_df$link <- unlist(my_df$link)
 
 
 ## STEP 3: DOWNLOAD PDFS FROM LINKS
+message('===============================\nDOWNLOADING PDFS FROM LINKS\n===============================')
 
-# DOWNLOADING ELSEVIER LINKS
 # Here, I call the elsevier_pdf_download() function repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
 # 'organize links' section of the script
 system.time(for (i in 1:dim(my_df)[1]) {
+  url <- my_df$link[i]
+  my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
   if (my_df$elsevier[i]) {
-    url <- my_df$link[i]
-    outpath <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
-    my_df$downloaded <- tryCatch(elsevier_pdf_download(url, outpath),
+    # DOWNLOADING ELSEVIER LINKS
+    my_df$downloaded[i] <- tryCatch(elsevier_pdf_download(url, my_df$path[i]),
                                       error=function(cond) {
                                         message(cond)
                                         return(1)
                                       }, 
                                       finally = message(paste("Processed URL:", url)))
+  } else {
+    # DOWNLOADING OTHER LINKS
+    my_df$downloaded[i] <- tryCatch(download.file(url, my_df$path[i]),
+                                 error=function(cond) {
+                                   message(cond)
+                                   return(1)
+                                 }, 
+                                 finally = message(paste("Processed URL:", url)))
   }
+  message('[', i, '/', dim(my_df[1]), ']')
 })
 
-# DOWNLOADING OTHER LINKS
+message('===============================\nPDFS DOWNLOADED\n===============================')
 
+# my_df$pdf <- sapply(my_df$path, is_binary) #
+
+# removing non pdf files
+# for (i in 1:dim(my_df)[1]) {
+#   if (!my_df$downloaded) {
+#     print(my_df$path[i])
+#   }
+# }
+
+summary_path <- file.path(pdf_output_dir, 'summary.csv')
+write.csv(my_df, file = summary_path, row.names = F)
+
+# message('\nYou have downloaded ', sum(my_df$pdf), ' pdfs to ', pdf_output_dir)
+message('\n Details of the pdf retrieval process have been stored in ', summary_path, '\n')
 
 # ===============================
-# TESTING
+# DEPRECATED
 # ===============================
 
-# 
+
 # links <- data.frame()
 # 
 # length(has_pdf) # 560 out of 1037 have pdf links
@@ -170,7 +232,7 @@ system.time(for (i in 1:dim(my_df)[1]) {
 # pdf_text <- list()
 # failure <- c()
 # for (i in 1:length(data_with_pdf)) {
-#   filename <- str_replace_all(data_with_pdf$Name[i], ' ', '_') %>% 
+#   filename <- str_replace_all(data_with_pdf$Name[i], ' ', '_') %>%
 #     str_replace_all('\\.', '') %>%
 #     paste('.pdf', sep = '')
 #   pdf_outpath <- file.path(pdf_output_dir, filename)
@@ -178,6 +240,4 @@ system.time(for (i in 1:dim(my_df)[1]) {
 #   failure <- c(failure, dl_fail)
 # }
 # 
-# PDFs_collect(aDataFrame=my_df,DOIcolumn="DOI",FileNamecolumn="Name",directory=pdf_output_dir)
-
-
+# # PDFs_collect(aDataFrame=my_df,DOIcolumn="DOI",FileNamecolumn="Name",directory=pdf_output_dir)
