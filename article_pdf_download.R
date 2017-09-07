@@ -85,31 +85,33 @@ is_binary <- function(filepath,max=1000){
 # ===============================
 
 ## STEP 1: READ DOIs/METADATA FROM BIB FILES
+# generalized the bib file read in process. adding a bib file to the pile requires no longer requires extra code; the userneed only add the file to the directory full of bib files
+filepath_list <- as.list(file.path(isi_dir, dir(isi_dir)))
+file_list <- convert2df(do.call(readFiles, filepath_list))
+# the function call above is the same as the function call below-- just way more convenient and also 
+# soil.health <- convert2df(readFiles(file.path(isi_dir, 'healthy.rangelands.bib'),
+#                                     file.path(isi_dir, 'rangeland_SAME_soil.health.bib'),
+#                                     file.path(isi_dir, 'rangeland.health.bib'),
+#                                     file.path(isi_dir, 'soil.health_healthy.soil_1to500.bib'),
+#                                     file.path(isi_dir, 'soil.health_healthy.soil_501to1000.bib'),
+#                                     file.path(isi_dir, 'soil.health_healthy.soil_1001to1463.bib'),
+#                                     file.path(isi_dir, 'soil.quality_1to500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_501to1000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_1001to1500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_1501to2000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_2001to2500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_2501to3000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_3001to3500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_3501to4000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_4001to4500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_4501to5000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_5001to5500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_5501to6000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_6001to6500.bib'),
+#                                     file.path(isi_dir, 'soil.quality_6501to7000.bib'),
+#                                     file.path(isi_dir, 'soil.quality_7001to7471.bib')
+# ))
 
-soil.health <- convert2df(readFiles(file.path(isi_dir, 'healthy.rangelands.bib'),
-                                    file.path(isi_dir, 'rangeland_SAME_soil.health.bib'),
-                                    file.path(isi_dir, 'rangeland.health.bib'),
-                                    file.path(isi_dir, 'soil.health_healthy.soil_1to500.bib'),
-                                    file.path(isi_dir, 'soil.health_healthy.soil_501to1000.bib'),
-                                    file.path(isi_dir, 'soil.health_healthy.soil_1001to1463.bib'),
-                                    file.path(isi_dir, 'soil.quality_1to500.bib'),
-                                    file.path(isi_dir, 'soil.quality_501to1000.bib'),
-                                    file.path(isi_dir, 'soil.quality_1001to1500.bib'),
-                                    file.path(isi_dir, 'soil.quality_1501to2000.bib'),
-                                    file.path(isi_dir, 'soil.quality_2001to2500.bib'),
-                                    file.path(isi_dir, 'soil.quality_2501to3000.bib'),
-                                    file.path(isi_dir, 'soil.quality_3001to3500.bib'),
-                                    file.path(isi_dir, 'soil.quality_3501to4000.bib'),
-                                    file.path(isi_dir, 'soil.quality_4001to4500.bib'),
-                                    file.path(isi_dir, 'soil.quality_4501to5000.bib'),
-                                    file.path(isi_dir, 'soil.quality_5001to5500.bib'),
-                                    file.path(isi_dir, 'soil.quality_5501to6000.bib'),
-                                    file.path(isi_dir, 'soil.quality_6001to6500.bib'),
-                                    file.path(isi_dir, 'soil.quality_6501to7000.bib'),
-                                    file.path(isi_dir, 'soil.quality_7001to7471.bib')
-))
-
-soil.health <- convert2df(sapply(file.path(data_dir, dir(isi_dir)), readFiles))
 # removing duplicate records
 soil.health <- duplicatedMatching(soil.health,Field="TI") 
 
@@ -123,7 +125,7 @@ my_df <- my_df[1:50,]
 
 # collecting links
 system.time(my_df$links <- sapply(my_df$DOI, crm_links)) # getting links for each DOI
-my_df <- my_df[lapply(my_df$links, length) > 0,] # 929 of 1037 DOIs returned links via crm_links()
+my_df <- my_df[lapply(my_df$links, length) > 0,] # 5759 of 6406 DOIs returned links via crm_links()
 
 
 # elsevier links require a separate dl process, so we distinguish them here
@@ -141,11 +143,14 @@ for (i in 1:dim(my_df)[1]) {
     link <- my_df$links[[i]]$xml$xml
   } else if ('pdf' %in% names(my_df$links[[i]])) { # otherwise, we prefer the 'pdf' link type
     link <- my_df$links[[i]]$pdf$pdf
-  } else { # our last preference is the 'unspecified' link type
+  } else if ('unspecified' %in% names(my_df$links[[i]])) { # our last preference is the 'unspecified' link type
     link <- my_df$links[[i]]$unspecified$unspecified
+  } else { # we don't handle links of type 'html' or 'plain', because they almost never provide pdf download; moreover, we only want xml links from elsevier because we only handle those
+    link <- NA
   }
   my_df$download_link[i] <- as.character(link)
 }
+
 
 
 ## STEP 3: DOWNLOAD PDFS FROM LINKS
@@ -154,18 +159,16 @@ message('===============================\nDOWNLOADING PDFS FROM LINKS\n=========
 # Here, I call the elsevier_pdf_download() function repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
 # 'organize links' section of the script
 system.time(for (i in 1:dim(my_df)[1]) {
-  url <- my_df$link[i]
+  url <- my_df$download_link[i]
   my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
   if (my_df$elsevier[i]) {
-    url <- my_df$download_link[i]
-    outpath <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
-
-    my_df$downloaded <- tryCatch(elsevier_pdf_download(url, outpath),
+    
+    my_df$downloaded <- tryCatch(elsevier_pdf_download(url, my_df$path[i]),
                                       error=function(cond) {
                                         message(cond)
                                         return(1)
                                       }, 
-                                      finally = message(paste("Processed URL:", url)))
+                                      finally = message(paste("\nProcessed URL:", url)))
   } else {
     # DOWNLOADING OTHER LINKS
     my_df$downloaded[i] <- tryCatch(download.file(url, my_df$path[i]),
@@ -173,7 +176,7 @@ system.time(for (i in 1:dim(my_df)[1]) {
                                    message(cond)
                                    return(1)
                                  }, 
-                                 finally = message(paste("Processed URL:", url)))
+                                 finally = message(paste("\nProcessed URL:", url)))
   }
   message('[', i, '/', dim(my_df[1]), ']')
 })
@@ -194,6 +197,15 @@ write.csv(my_df, file = summary_path, row.names = F)
 
 # message('\nYou have downloaded ', sum(my_df$pdf), ' pdfs to ', pdf_output_dir)
 message('\n Details of the pdf retrieval process have been stored in ', summary_path, '\n')
+a <- 0
+for (i in 1:dim(my_df)[1]){
+  if ( identical(c('unspecified', 'unspecified'), names(my_df$links[[i]])) ) {
+    print(i)
+  }
+}
+
+for(r)
+
 
 # ===============================
 # DEPRECATED
