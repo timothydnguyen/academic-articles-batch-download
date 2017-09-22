@@ -15,7 +15,8 @@ library(jsonlite) # for parsing json objects
 # ===============================
 data_dir <- './data' # Relative path to repository. To be changed as needed
 isi_dir <- file.path(data_dir, 'isi_searches')
-pdf_output_dir <- file.path(data_dir, 'pdf_output')
+output_dir <- file.path(data_dir, 'pdf_output')
+pdf_output_dir <- file.path(output_dir, 'pdfs')
 # Check if outpath exists
 dir.create(pdf_output_dir, showWarnings = FALSE)
 
@@ -88,7 +89,7 @@ is_binary <- function(filepath,max=1000){
 # generalized the bib file read in process. adding a bib file to the pile requires no longer requires extra code; the userneed only add the file to the directory full of bib files
 filepath_list <- as.list(file.path(isi_dir, dir(isi_dir)))
 file_list <- convert2df(do.call(readFiles, filepath_list))
-# the function call above is the same as the function call below-- just way more convenient and also 
+# the function call above is the same as the function call below-- just way more convenient and versatile
 # soil.health <- convert2df(readFiles(file.path(isi_dir, 'healthy.rangelands.bib'),
 #                                     file.path(isi_dir, 'rangeland_SAME_soil.health.bib'),
 #                                     file.path(isi_dir, 'rangeland.health.bib'),
@@ -113,6 +114,7 @@ file_list <- convert2df(do.call(readFiles, filepath_list))
 # ))
 
 # removing duplicate records
+# NOTE: turns out that this still lets some duplicate files through (see: 'STEP 4: POST-PROCESSING')
 soil.health <- duplicatedMatching(soil.health,Field="TI") 
 
 
@@ -166,7 +168,7 @@ system.time(for (i in 1:dim(my_df)[1]) {
     my_df$downloaded <- tryCatch(elsevier_pdf_download(url, my_df$path[i]),
                                       error=function(cond) {
                                         message(cond)
-                                        return(1)
+                                        return(0)
                                       }, 
                                       finally = message(paste("\nProcessed URL:", url)))
   } else {
@@ -174,92 +176,42 @@ system.time(for (i in 1:dim(my_df)[1]) {
     my_df$downloaded[i] <- tryCatch(download.file(url, my_df$path[i]),
                                  error=function(cond) {
                                    message(cond)
-                                   return(1)
+                                   return(0)
                                  }, 
                                  finally = message(paste("\nProcessed URL:", url)))
   }
-  message('[', i, '/', dim(my_df[1]), ']')
+  message('[', i, '/', dim(my_df)[1], ']')
 })
 
 message('===============================\nPDFS DOWNLOADED\n===============================')
 
-# my_df$pdf <- sapply(my_df$path, is_binary) #
-
-# removing non pdf files
-# for (i in 1:dim(my_df)[1]) {
-#   if (!my_df$downloaded) {
-#     print(my_df$path[i])
-#   }
-# }
-
-summary_path <- file.path(pdf_output_dir, 'summary.csv')
-write.csv(my_df, file = summary_path, row.names = F)
-
-# message('\nYou have downloaded ', sum(my_df$pdf), ' pdfs to ', pdf_output_dir)
-message('\n Details of the pdf retrieval process have been stored in ', summary_path, '\n')
-a <- 0
-for (i in 1:dim(my_df)[1]){
-  if ( identical(c('unspecified', 'unspecified'), names(my_df$links[[i]])) ) {
-    print(i)
+## STEP 4: POST-PROCESSING
+# distinguish pdf files
+for (i in 1:dim(my_df)[1]) {
+  if (file.exists(my_df$path[i])) {
+    my_df$downloaded[i] <- TRUE
+    my_df$is_pdf[i] <- is_binary(my_df$path[i])
+  } else {
+    my_df$downloaded[i] <- FALSE
+    my_df$is_pdf[i] <- FALSE
   }
 }
+my_df$downloaded <- as.logical(my_df$downloaded) 
+my_df$is_pdf <- as.logical(my_df$is_pdf)
 
-for(r)
+sum(my_df$downloaded) # out of 5759 acquired links, 4604 produced downloaded files
+length(unique(my_df$path[my_df$downloaded])) # out of 4604 downloaded files, 4539 are unique
+length(unique(my_df$path[my_df$downloaded & my_df$is_pdf])) # out of 4539 unique downloaded files, 4057 are binary files (PDFs)
 
+non_pdf_paths <- unique(my_df$path[my_df$downloaded & !my_df$is_pdf]) # For investigative purposes, here are the paths for the non-PDF files (482) that were downloaded
 
-# ===============================
-# DEPRECATED
-# ===============================
+# removing non-pdf files
+for (non_pdf_path in non_pdf_paths) {
+  file.remove(non_pdf_path)
+}
 
+# output information regarding the download processs to csv
+summary_path <- file.path(output_dir, 'summary.csv')
+write.csv(select(my_df, -links), file = summary_path, row.names = F)
 
-# links <- data.frame()
-# 
-# length(has_pdf) # 560 out of 1037 have pdf links
-# data_with_pdf <- my_df[has_pdf,]
-# elsevier <- links[-has_pdf] # need to examine to understand if these links are of any value; if they aren't then why not?
-# 
-# # creating df of non-pdf links (links to be discarded)
-# no_pdf <- data.frame()
-# for (i in 1:length(links_without_pdf)) {
-#   doi <- names(links_without_pdf[i])
-#   links <- if (length(links_without_pdf[[i]]) == 0) 'NA' else unlist(links_without_pdf[[i]])
-#   print(i)
-#   no_pdf <- rbind(no_pdf, cbind(doi, links))
-# }
-# write.csv(no_pdf, file = file.path(data_dir, 'no_pdf.csv'), row.names = F)
-# 
-# 
-# has_xml <- c()
-# elsevier <- my_df$links[my_df$elsevier]
-# for (i in 1:length(elsevier)) {
-#   has_xml <- c(has_xml, ('xml' %in% names(elsevier[[i]])))
-# }
-# 
-# 
-# 
-# 
-# pdf_links <- c()
-# for (links in data_with_pdf$links) {
-#   if ('pdf' %in% names(links)) {
-#     pdf_link <- links$pdf
-#   } else {
-#     pdf_link <- links$unspecified
-#   }
-#   pdf_links <- c(pdf_links, pdf_link)
-# }
-# 
-# data_with_pdf$pdf_link <- unlist(pdf_links) # THIS OBJECT CONTAINS A LIST OF DIRECT LINKS TO PDFS (with high probability)
-# write.csv(data_with_pdf[,c(1, 2, 4)], file = file.path(data_dir, 'pdf_info.csv'), row.names = F)
-# 
-# pdf_text <- list()
-# failure <- c()
-# for (i in 1:length(data_with_pdf)) {
-#   filename <- str_replace_all(data_with_pdf$Name[i], ' ', '_') %>%
-#     str_replace_all('\\.', '') %>%
-#     paste('.pdf', sep = '')
-#   pdf_outpath <- file.path(pdf_output_dir, filename)
-#   dl_fail <- download.file(url = pdf_links[[i]], destfile = pdf_outpath)
-#   failure <- c(failure, dl_fail)
-# }
-# 
-# # PDFs_collect(aDataFrame=my_df,DOIcolumn="DOI",FileNamecolumn="Name",directory=pdf_output_dir)
+message('\n Details of the PDF retrieval process have been stored in ', summary_path, '\n')
