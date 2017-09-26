@@ -153,9 +153,9 @@ message('===============================\nDOWNLOADING PDFS FROM LINKS\n=========
 
 # Here, I call the elsevier_pdf_download() function repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
 # 'organize links' section of the script
-for (i in 1:dim(my_df)[1]) {
+for (i in 1:nrow(my_df)) {
   url <- my_df$download_link[i]
-  my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
+  my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), 'pdf')
   if (my_df$elsevier[i]) {
     
     my_df$downloaded <- tryCatch(elsevier_pdf_download(url, my_df$path[i]),
