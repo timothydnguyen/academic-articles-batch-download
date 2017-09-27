@@ -151,11 +151,11 @@ for (i in 1:dim(my_df)[1]) {
 ## STEP 3: DOWNLOAD PDFS FROM LINKS
 message('===============================\nDOWNLOADING PDFS FROM LINKS\n===============================')
 
-# Here, I call the elsevier_pdf_download() function repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
+# Here, the elsevier_pdf_download() function is called repeatedly via a loop that iterates through the rows of the dataframe created in the preceding
 # 'organize links' section of the script
 for (i in 1:nrow(my_df)) {
   url <- my_df$download_link[i]
-  my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), 'pdf')
+  my_df$path[i] <- paste0(file.path(pdf_output_dir, my_df$Name[i]), '.pdf')
   if (my_df$elsevier[i]) {
     
     my_df$downloaded <- tryCatch(elsevier_pdf_download(url, my_df$path[i]),
@@ -202,13 +202,19 @@ message(sprintf("Over the %i acquired links, %i PDFs were succesfully downloaded
 # Extract the files info that were not PDFs
 non_pdf_paths <- unique(my_df$path[my_df$downloaded & !my_df$is_pdf]) # For investigative purposes, here are the paths for the non-PDF files (482) that were downloaded
 
-# Move the non-pdf files
-for (non_pdf_path in non_pdf_paths) {
-  file.rename(from = non_pdf_path, 
-              to = file.path(nopdf_output_dir, 
-                           paste0(basename(file_path_sans_ext(non_pdf_path)),".html"))
-              )
-}
+## Move the non-pdf files to a specific directory
+# Create the destination list
+html_paths <- file.path(nopdf_output_dir, 
+                        paste0(basename(file_path_sans_ext(non_pdf_paths)),
+                               ".html")
+                        )
+# Move the files
+file.rename(from = non_pdf_paths, to = html_paths)
+
+## Fix the double dot before file extension
+pdf_files <- dir(pdf_output_dir, full.names = TRUE)
+pdf_fixed <- gsub("\\.\\.pdf","\\.pdf",pdf_files)
+file.rename(from = pdf_files , to = pdf_fixed)
 
 # output information regarding the download processs to csv
 summary_path <- file.path(output_dir, 'summary.csv')
